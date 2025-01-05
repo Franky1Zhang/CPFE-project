@@ -1,3 +1,7 @@
+%%这是PS3作业bonus的延伸思考，当没有解析解的时候，如果要给这个期权定价应该如何做？有点类似于VaR
+%%使用的是CIR模型
+
+
 rng('default');
 BondMaturity = 5;
 OptionMaturity = 3;
@@ -27,6 +31,7 @@ OptionPrice = zeros(1,numSim);
 discount = zeros(1,numSim);
 EndPrices = zeros(numSim,numSim);
 EndPrice = zeros(1,numSim);
+%%先对于期权未到期时候进行模拟，只需记录时间末点的折现因子和利率，折现因子用来最后算期权的折现价格，利率是下一步继续模拟的起点
 for i = 1:numSim
   discountfactor = 1;
   oldr = initialVal;
@@ -72,7 +77,7 @@ for i = 1:numSim
     end
     EndPrice(i) = mean(EndPrices(i,:));
 end
-
+%%现在我们得到了option到期时，coupon的价格，可以根据这个价格来决定是否行权
 for i = 1:numSim
     if EndPrice(i)>FaceVal
         OptionPayoff = max(0,EndPrice(i) - FaceVal);
