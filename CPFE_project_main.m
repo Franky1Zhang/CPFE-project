@@ -51,16 +51,105 @@ writetable(data,"test.xlsx")
 
 
 %%
-%Pricing swaps according to spot yields, Vasicek and CIR model and
-%Monte Carlo Simulation.
+% Design a swap according to spot yields, Vasicek and Monte Carlo
+% Simulation. Simulate the floating rate and then decide the fixed rate.
 
-%数据是China Treasury Spot Yields.xlsx，纵轴是时间，横轴是期限
-%分别用Vasicek和CIR模型，在风险中性下用lsqcurvefit函数得到参数
-%今天即期利率为1.881%，为不同到期期限的利率互换定价。
-%最终输出一个表格，第一列是不同的到期期限（1个月、3个月、6个月、1年、2年、5年），第二列是利率互换对应的固定利率
+%
+clc; clear;
+
+% Read data from 'China Treasury Spot Yields.xlsx'
+% Data reading and data cleaning
+
+dataFile = 'China Treasury Spot Yields.xlsx';
+maturitiesInMonth = readmatrix(dataFile, Range='B1:O1');
+maturitiesInYear = maturitiesInMonth / 12;
+
+spotRates = readmatrix(dataFile, Range='B2:O206')/100;
+spotRates=rmmissing(spotRates);
+
+[numObs,numBonds] = size(spotRates);
+
+%% 1 - Risk Natural Parameter Estimates
+
+TreasSpotRate_1Month = spotRates(:,1);
+FirstDifference = TreasSpotRate_1Month(2:end) - TreasSpotRate_1Month(1:end-1);
+constant = ones(length(FirstDifference),1);
+
+[b,bint,r,rint,stats] = regress(FirstDifference, [constant, TreasSpotRate_1Month(1:end-1)]);
+
+% This leads to the following risk natrual parameters 
+dt=1/12; 
+alpha=b(1);
+beta=b(2);
+gamma_1=-beta/dt;
+residSD=sqrt(stats(4));
+sigma_1=residSD/sqrt(dt);
+rbar_1=alpha/(gamma_1*dt);
+
+
+fprintf('-----------------------------------------------------------------\n')
+fprintf('Parameter estimates for Vasicek Model in risk natural environment\n');
+fprintf('rbar equals to %5.5f\n', rbar_1);
+fprintf('gamma equals to %5.5f\n', gamma_1);
+fprintf('sigma equals to %5.5f\n', sigma_1);
 
 
 
+%% 2 - Risk Neutral Parameter Estimates
+
+
+rbar_star = 0.02;
+gamma_star = 1.24;
+sigma=0.1;
+priceMatrix=zeros(numObs,numBonds);
+for i=1:numBonds
+    priceMatrix(:,i)=exp( - spotRates(:,i).* maturitiesInYear(i));
+end
+
+paravec = [rbar_star,gamma_star,sigma];
+
+xdata = spotRates(:,1);
+
+myfun = @(parameters, xdata) Pfunction(parameters,xdata,maturitiesInYear);
+
+options = optimset('MaxIter',2000,'MaxFunEvals',2000);
+
+[estimatedParas] = lsqcurvefit(myfun,paravec,xdata,priceMatrix,[0 0 0],[10 4 4],options);
+
+rbar_star = estimatedParas(1);
+gamma_star = estimatedParas(2);
+
+fprintf('-----------------------------------------------------------------\n')
+fprintf('Parameter estimates for Vasicek Model in risk neutral environment\n');
+fprintf('rbar_star_hat equals to %5.5f\n', estimatedParas(1));
+fprintf('gamma_star_hat equals to %5.5f\n', estimatedParas(2));
+fprintf('sigma_hat equals to %5.5f\n', estimatedParas(3));
+
+%% 3 - Design swaps by Monte Carlo simulation
+% Assume that we are now designing a swap for two firms. 
+% As we know the initial rate is 1.843%(today's interest rate), and then
+% use Monte Carlo simulation to simulate floating rate path. The NPV of floating side should be same for fixed side. 
+% So we can get the fixed rate of the swap
+
+r0 = 1.8430 / 100; % instantaneous rate of floating rate path
+FaceValue = 1e6;
+
+
+times=(1:10)';
+gamma=gamma_1;
+rbar=rbar_1;
+sigma=sigma_1;
+paravec=[rbar,gamma,sigma];
+FixedRate=zeros(length(times),1);
+for i=1:length(times)
+    t=times(i);
+    [NPV,discountFactors]=floating(r0,FaceValue,paravec,t);
+    FixedRate(i)=NPV/sum(0.5*FaceValue*discountFactors);
+end
+
+result=table(times,FixedRate,'VariableNames',{'swap years','fixed rate'});
+fprintf('-----------------------------------------------------------------\n')
+disp(result)
 
 
 
